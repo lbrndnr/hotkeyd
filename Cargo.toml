@@ -1,0 +1,12 @@
+[package]
+name = "hotkeyd"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+auto-launch = "0.4.0"
+clap = "4.3.2"
+daemonize = "0.5.0"
+livesplit-hotkey = "0.7.0"
