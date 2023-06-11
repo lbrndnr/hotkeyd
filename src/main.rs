@@ -1,9 +1,19 @@
 use std::fs::File;
+use std::str::FromStr;
 use std::{thread, time};
 use std::process::Command;
 use clap;
 use daemonize::Daemonize;
-use livesplit_hotkey::{Hook, KeyCode, Modifiers};
+use livesplit_hotkey::{Hook, Hotkey, KeyCode, Modifiers};
+use serde::{Serialize, Deserialize};
+use serde_json;
+
+#[derive(Deserialize, Serialize, Debug)]
+struct ProfileHotKey {
+    keys: Vec<String>,
+    modifiers: Vec<String>,
+    script: String,
+}
 
 fn cli() -> clap::Command {
     clap::Command::new("hotkeyd")
@@ -12,25 +22,50 @@ fn cli() -> clap::Command {
         .arg_required_else_help(true)
         // .allow_external_subcommands(true)
         .subcommand(
-            clap::Command::new("detach")
-                .about("Clones repos")
-                // .arg(arg!(<REMOTE> "The remote to clone"))
+            clap::Command::new("init")
+                .about("Initializes the .hotkeyd file.")
                 .arg_required_else_help(true),
         )
 }
 
-fn main() {
-    // let matches = cli().get_matches();
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
 
-    // match matches.subcommand() {
-    //     Some(("detach", sub_matches)) => {
-    //         println!("detach")
-    //     }
-    //     _ => unreachable!()
-    // }
+fn register_profile_hotkeys(hook: &Hook, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = std::fs::read_to_string(path)?;
+    let profile = serde_json::from_str::<Vec<ProfileHotKey>>(&payload)?;
 
-    println!("OOOOOK");
+    for phk in profile.iter() {
+        let key = format!("Key{}", phk.keys[0].to_uppercase());        
+        let mut vals: Vec<String> = phk.modifiers.iter().map(|m| capitalize(m)).collect();
+        let script = phk.script.as_str();
+        vals.push(key);
+        println!("{}", vals.join("+").as_str());
+        match Hotkey::from_str(vals.join("+").as_str()) {
+            Ok(hotkey) => {
+                hook.register(hotkey, move || {
+                    // Command::new("sh")
+                    //     .arg("-c")
+                    //     .arg(script)
+                    //     .output()
+                    //     .unwrap();
+                    println!("OOOOK");
+                })?
+            }
+            Err(()) => println!("Invalid payload")
+        }
+        
+    }
 
+    Ok(())
+}
+
+fn daemonize() {
     let stdout = File::create("/tmp/daemon.out").unwrap();
     let stderr = File::create("/tmp/daemon.err").unwrap();
 
@@ -46,25 +81,34 @@ fn main() {
         .stderr(stderr);  // Redirect stderr to `/tmp/daemon.err`.
         // .privileged_action(|| "Executed before drop privileges");
 
-    match daemonize.start() {
-        Ok(_) => println!("Success, daemonized"),
-        Err(e) => eprintln!("Error, {}", e),
-    }
+    // match daemonize.start() {
+    //     Ok(_) => println!("Success, daemonized"),
+    //     Err(e) => eprintln!("Error, {}", e),
+    // }
 
-    // Register the hotkey
+}
+
+fn main() {
+    // let matches = cli().get_matches();
+
+    // match matches.subcommand() {
+    //     Some(("init", sub_matches)) => {
+    //         init();
+    //     }
+    //     _ => unreachable!()
+    // }
+
+    // // Register the hotkey
     let hook = Hook::new().unwrap();
 
-    hook.register(KeyCode::KeyK.with_modifiers(Modifiers::ALT), || {
-        Command::new("sh")
-            .arg("-c")
-            .arg(r"open /Applications/Visual\ Studio\ Code.app")
-            .output()
-            .unwrap();
-    })
-    .unwrap();
+    let path = "/Users/Laurin/.hotkeyd";
+    match register_profile_hotkeys(&hook, path) {
+        Err(e) => eprintln!("Error, {}", e),
+        _ => println!("OK")
+    }
 
     loop {
-        let latency = time::Duration::from_millis(500);
+        let latency = time::Duration::from_millis(1000);
         thread::sleep(latency);
     }
 }
