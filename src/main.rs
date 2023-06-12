@@ -12,7 +12,7 @@ use serde_json;
 struct ProfileHotKey {
     keys: Vec<String>,
     modifiers: Vec<String>,
-    script: String,
+    command: String,
 }
 
 fn cli() -> clap::Command {
@@ -47,11 +47,11 @@ fn register_profile_hotkeys(hook: &Hook, path: &str) -> Result<(), Box<dyn std::
         println!("{}", vals.join("+").as_str());
         match Hotkey::from_str(vals.join("+").as_str()) {
             Ok(hotkey) => {
-                let script = Box::new(phk.script.to_owned());
+                let command = Box::new(phk.command.to_owned());
                 hook.register(hotkey, move|| {
                     Command::new("sh")
                         .arg("-c")
-                        .arg(script.as_ref())
+                        .arg(command.as_ref())
                         .output()
                         .unwrap();
                 })?
