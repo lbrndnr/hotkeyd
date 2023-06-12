@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::str::FromStr;
+use std::io::{Error, ErrorKind};
 use std::{thread, time};
 use std::process::Command;
 use clap;
@@ -7,6 +8,8 @@ use daemonize::Daemonize;
 use livesplit_hotkey::{Hook, Hotkey, KeyCode, Modifiers};
 use serde::{Serialize, Deserialize};
 use serde_json;
+
+type BoxResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct ProfileHotKey {
@@ -18,34 +21,34 @@ struct ProfileHotKey {
 fn cli() -> clap::Command {
     clap::Command::new("hotkeyd")
         .about("Scripting at your fingertips")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        // .allow_external_subcommands(true)
         .subcommand(
-            clap::Command::new("init")
-                .about("Initializes the .hotkeyd file.")
-                .arg_required_else_help(true),
+            clap::Command::new("lint")
+                .about("Lint the .hotkey file.")
         )
 }
 
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey, ()> {
+    fn capitalize(s: &str) -> String {
+        let mut c = s.chars();
+        match c.next() {
+            None => String::new(),
+            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        }
     }
+    
+    let key = format!("Key{}", phk.keys[0].to_uppercase());        
+    let mut vals: Vec<String> = phk.modifiers.iter().map(|m| capitalize(m)).collect();
+    vals.push(key);
+
+    Hotkey::from_str(vals.join("+").as_str())
 }
 
-fn register_profile_hotkeys(hook: &Hook, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn register_profile_hotkeys(hook: &Hook, path: &str) -> BoxResult<()> {
     let payload = std::fs::read_to_string(path)?;
     let profile = serde_json::from_str::<Vec<ProfileHotKey>>(&payload)?;
 
     for phk in profile.iter() {
-        let key = format!("Key{}", phk.keys[0].to_uppercase());        
-        let mut vals: Vec<String> = phk.modifiers.iter().map(|m| capitalize(m)).collect();
-        vals.push(key);
-        println!("{}", vals.join("+").as_str());
-        match Hotkey::from_str(vals.join("+").as_str()) {
+        match new_hotkey(phk) {
             Ok(hotkey) => {
                 let command = Box::new(phk.command.to_owned());
                 hook.register(hotkey, move|| {
@@ -56,9 +59,10 @@ fn register_profile_hotkeys(hook: &Hook, path: &str) -> Result<(), Box<dyn std::
                         .unwrap();
                 })?
             }
-            Err(()) => println!("Invalid payload")
+            Err(()) => {
+                return Err(Box::new(Error::new(ErrorKind::InvalidData, "Unknown key and/or modifiers specified.")))
+            }
         }
-        
     }
 
     Ok(())
@@ -88,26 +92,27 @@ fn daemonize() {
 }
 
 fn main() {
-    // let matches = cli().get_matches();
+    let matches = cli().get_matches();
 
-    // match matches.subcommand() {
-    //     Some(("init", sub_matches)) => {
-    //         init();
-    //     }
-    //     _ => unreachable!()
-    // }
-
-    // // Register the hotkey
     let hook = Hook::new().unwrap();
-
     let path = "/Users/Laurin/.hotkeyd";
-    match register_profile_hotkeys(&hook, path) {
-        Err(e) => eprintln!("Error, {}", e),
-        _ => println!("OK")
+    let res = register_profile_hotkeys(&hook, path);
+
+    if let Err(e) = res {
+        eprintln!("Error, {}", e);
+        return
     }
 
-    loop {
-        let latency = time::Duration::from_millis(1000);
-        thread::sleep(latency);
+    match matches.subcommand() {
+        Some(("lint", _)) => {
+            println!("Looking good!");
+            return
+        }
+        _ => {
+            loop {
+                let latency = time::Duration::from_millis(1000);
+                thread::sleep(latency);
+            }
+        }
     }
 }
