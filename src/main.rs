@@ -43,18 +43,17 @@ fn register_profile_hotkeys(hook: &Hook, path: &str) -> Result<(), Box<dyn std::
     for phk in profile.iter() {
         let key = format!("Key{}", phk.keys[0].to_uppercase());        
         let mut vals: Vec<String> = phk.modifiers.iter().map(|m| capitalize(m)).collect();
-        let script = phk.script.as_str();
         vals.push(key);
         println!("{}", vals.join("+").as_str());
         match Hotkey::from_str(vals.join("+").as_str()) {
             Ok(hotkey) => {
-                hook.register(hotkey, move || {
-                    // Command::new("sh")
-                    //     .arg("-c")
-                    //     .arg(script)
-                    //     .output()
-                    //     .unwrap();
-                    println!("OOOOK");
+                let script = Box::new(phk.script.to_owned());
+                hook.register(hotkey, move|| {
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg(script.as_ref())
+                        .output()
+                        .unwrap();
                 })?
             }
             Err(()) => println!("Invalid payload")
