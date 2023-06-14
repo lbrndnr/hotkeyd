@@ -18,4 +18,4 @@ First, define a profile in your home directory. This example profile opens Visua
 Next, run `hotkeyd`. It will ask you for the Accessibility permission, which is necessary on macOS to observe the keyboard.
 
 ## License
-Nuage is licensed under the [MIT License](http://opensource.org/licenses/mit-license.php).
+`hotkeyd` is licensed under the [MIT License](http://opensource.org/licenses/mit-license.php).
