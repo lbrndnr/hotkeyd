@@ -1,9 +1,11 @@
 use std::fs::File;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::io::{Error, ErrorKind};
 use std::thread;
 use std::process::{Command, exit};
 use clap;
+use home;
 use daemonize::Daemonize;
 use livesplit_hotkey::{permission, Hook, Hotkey};
 use serde::{Serialize, Deserialize};
@@ -43,7 +45,7 @@ fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey, ()> {
     Hotkey::from_str(vals.join("+").as_str())
 }
 
-fn register_profile_hotkeys(hook: &Hook, path: &str) -> BoxResult<()> {
+fn register_profile_hotkeys(hook: &Hook, path: &PathBuf) -> BoxResult<()> {
     let payload = std::fs::read_to_string(path)?;
     let profile = serde_json::from_str::<Vec<ProfileHotKey>>(&payload)?;
 
@@ -95,6 +97,9 @@ fn main() {
     let matches = cli().get_matches();
 
     if !permission::request() {
+        eprintln!("hotkeyd needs your permission to observe the keyboard. 
+                   Grant the permission and run the command again. 
+                   You might have to restart your terminal.");
         return;
     }
     // if !permission::request() {
@@ -112,8 +117,16 @@ fn main() {
             exit(1);
         }
     };
-    let path = "/Users/Laurin/.hotkeyd";
-    let res = register_profile_hotkeys(&hook, path);
+    let home_dir = match home::home_dir() {
+        Some(dir) => dir,
+        None => {
+            eprintln!("Error: Did not .hotkeyd profile. Please open an issue at https://github.com/lbrndnr/hotkeyd.");
+            exit(2);
+        }
+    };
+
+    let profile_path = home_dir.join(".hotkeyd");
+    let res = register_profile_hotkeys(&hook, &profile_path);
 
     if let Err(e) = res {
         eprintln!("Error, {}", e);
