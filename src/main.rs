@@ -1,3 +1,4 @@
+use auto_launch::AutoLaunch;
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -10,8 +11,7 @@ use daemonize::Daemonize;
 use livesplit_hotkey::{permission, Hook, Hotkey};
 use serde::{Serialize, Deserialize};
 use serde_json;
-
-type BoxResult<T> = Result<T, Box<dyn std::error::Error>>;
+use anyhow::Result;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct ProfileHotKey {
@@ -22,14 +22,18 @@ struct ProfileHotKey {
 
 fn cli() -> clap::Command {
     clap::Command::new("hotkeyd")
-        .about("Scripting at your fingertips")
+        .about("Simple and hackable global keyboard shortcuts.")
         .subcommand(
             clap::Command::new("lint")
                 .about("Lint the .hotkey file.")
         )
+        .subcommand(
+            clap::Command::new("setup")
+                .about("Setup for daily usage.")
+        )
 }
 
-fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey, ()> {
+fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey> {
     fn capitalize(s: &str) -> String {
         let mut c = s.chars();
         match c.next() {
@@ -43,28 +47,23 @@ fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey, ()> {
     vals.push(key);
 
     Hotkey::from_str(vals.join("+").as_str())
+        .map_err(|_| anyhow::Error::new(Error::new(ErrorKind::InvalidData, "Unknown key and/or modifiers specified.")))
 }
 
-fn register_profile_hotkeys(hook: &Hook, path: &PathBuf) -> BoxResult<()> {
+fn register_profile_hotkeys(hook: &Hook, path: &PathBuf) -> Result<()> {
     let payload = std::fs::read_to_string(path)?;
     let profile = serde_json::from_str::<Vec<ProfileHotKey>>(&payload)?;
 
     for phk in profile.iter() {
-        match new_hotkey(phk) {
-            Ok(hotkey) => {
-                let command = Box::new(phk.command.to_owned());
-                hook.register(hotkey, move|| {
-                    Command::new("sh")
-                        .arg("-c")
-                        .arg(command.as_ref())
-                        .output()
-                        .unwrap();
-                })?
-            }
-            Err(()) => {
-                return Err(Box::new(Error::new(ErrorKind::InvalidData, "Unknown key and/or modifiers specified.")))
-            }
-        }
+        let hotkey = new_hotkey(phk)?;
+        let command = Box::new(phk.command.to_owned());
+        hook.register(hotkey, move|| {
+            Command::new("sh")
+                .arg("-c")
+                .arg(command.as_ref())
+                .output()
+                .unwrap();
+        })?;
     }
 
     Ok(())
@@ -93,30 +92,38 @@ fn daemonize() {
 
 }
 
-fn main() {
-    let matches = cli().get_matches();
+fn setup(path: &PathBuf) -> Result<()> {
+    auto_launch()?;
+    request_permission();
 
+    Ok(())
+}
+
+fn auto_launch() -> Result<()> {
+    let bin_path = std::env::current_dir()?;
+    if let Some(bin_path) = bin_path.to_str() {
+        let auto = AutoLaunch::new("hotkeyd", bin_path, true, &[] as &[&str]);
+        auto.enable().unwrap();
+        Ok(())
+    }
+    else {
+        Err(anyhow::Error::new(Error::new(ErrorKind::NotFound, "Did not find the current binary.")))
+    }
+}
+
+fn request_permission() {
     if !permission::request() {
         eprintln!("hotkeyd needs your permission to observe the keyboard. 
                    Grant the permission and run the command again. 
                    You might have to restart your terminal.");
-        return;
+        exit(1);
     }
-    // if !permission::request() {
-    //     eprintln!("Accessibility permission was not granted. Terminating.");
-    //     if let Err(err) = open::that("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-    //         eprintln!("{}", err);
-    //     }
-    //     return;
-    // }
+}
 
-    let hook = match Hook::new() {
-        Ok(hook) => hook,
-        Err(err) => {
-            eprintln!("Error: {} Please open an issue at https://github.com/lbrndnr/hotkeyd.", err);
-            exit(1);
-        }
-    };
+fn main() {
+    let matches = cli().get_matches();
+    let subcommand = matches.subcommand();
+
     let home_dir = match home::home_dir() {
         Some(dir) => dir,
         None => {
@@ -126,18 +133,33 @@ fn main() {
     };
 
     let profile_path = home_dir.join(".hotkeyd");
-    let res = register_profile_hotkeys(&hook, &profile_path);
 
-    if let Err(e) = res {
-        eprintln!("Error, {}", e);
-        return
+    // Accessibility permissions are needed before registering the hook
+    if let Some(("setup", _)) = subcommand {
+        if let Err(err) = setup(&profile_path) {
+            eprintln!("Error: {} Please open an issue at https://github.com/lbrndnr/hotkeyd.", err);
+        }
+        exit(0)
+    }
+
+    request_permission();
+
+    let hook = match Hook::new() {
+        Ok(hook) => hook,
+        Err(err) => {
+            eprintln!("Error: {} Please open an issue at https://github.com/lbrndnr/hotkeyd.", err);
+            exit(3);
+        }
+    };
+
+    if let Err(err) = register_profile_hotkeys(&hook, &profile_path) {
+        eprintln!("Error, {}", err);
+        exit(4);
     }
 
     match matches.subcommand() {
-        Some(("lint", _)) => {
-            println!("Looking good!");
-            return
-        }
+        Some(("setup", _)) => unreachable!(),
+        Some(("lint", _)) => println!("Looking good!"),
         _ => {
             loop {
                 thread::park();
