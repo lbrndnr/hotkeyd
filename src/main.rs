@@ -1,11 +1,11 @@
 use std::fs::File;
 use std::str::FromStr;
 use std::io::{Error, ErrorKind};
-use std::{thread, time};
-use std::process::Command;
+use std::thread;
+use std::process::{Command, exit};
 use clap;
 use daemonize::Daemonize;
-use livesplit_hotkey::{Hook, Hotkey, KeyCode, Modifiers};
+use livesplit_hotkey::{permission, Hook, Hotkey};
 use serde::{Serialize, Deserialize};
 use serde_json;
 
@@ -84,17 +84,34 @@ fn daemonize() {
         .stderr(stderr);  // Redirect stderr to `/tmp/daemon.err`.
         // .privileged_action(|| "Executed before drop privileges");
 
-    // match daemonize.start() {
-    //     Ok(_) => println!("Success, daemonized"),
-    //     Err(e) => eprintln!("Error, {}", e),
-    // }
+    match daemonize.start() {
+        Ok(_) => println!("Success, daemonized"),
+        Err(e) => eprintln!("Error, {}", e),
+    }
 
 }
 
 fn main() {
     let matches = cli().get_matches();
 
-    let hook = Hook::new().unwrap();
+    if !permission::request() {
+        return;
+    }
+    // if !permission::request() {
+    //     eprintln!("Accessibility permission was not granted. Terminating.");
+    //     if let Err(err) = open::that("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+    //         eprintln!("{}", err);
+    //     }
+    //     return;
+    // }
+
+    let hook = match Hook::new() {
+        Ok(hook) => hook,
+        Err(err) => {
+            eprintln!("Error: {} Please open an issue at https://github.com/lbrndnr/hotkeyd.", err);
+            exit(1);
+        }
+    };
     let path = "/Users/Laurin/.hotkeyd";
     let res = register_profile_hotkeys(&hook, path);
 
@@ -110,8 +127,7 @@ fn main() {
         }
         _ => {
             loop {
-                let latency = time::Duration::from_millis(1000);
-                thread::sleep(latency);
+                thread::park();
             }
         }
     }
