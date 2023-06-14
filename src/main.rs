@@ -11,7 +11,7 @@ use daemonize::Daemonize;
 use livesplit_hotkey::{permission, Hook, Hotkey};
 use serde::{Serialize, Deserialize};
 use serde_json;
-use anyhow::Result;
+use anyhow::{Result, Context};
 
 #[derive(Deserialize, Serialize, Debug)]
 struct ProfileHotKey {
@@ -100,11 +100,10 @@ fn setup(path: &PathBuf) -> Result<()> {
 }
 
 fn auto_launch() -> Result<()> {
-    let bin_path = std::env::current_dir()?;
+    let bin_path = std::env::current_exe()?;
     if let Some(bin_path) = bin_path.to_str() {
         let auto = AutoLaunch::new("hotkeyd", bin_path, true, &[] as &[&str]);
-        auto.enable().unwrap();
-        Ok(())
+        auto.enable().context("Failed to register hotkeyd as launch item.")
     }
     else {
         Err(anyhow::Error::new(Error::new(ErrorKind::NotFound, "Did not find the current binary.")))
