@@ -15,7 +15,7 @@ use anyhow::{Result, Context};
 
 #[derive(Deserialize, Serialize, Debug)]
 struct ProfileHotKey {
-    keys: Vec<String>,
+    key: String,
     modifiers: Vec<String>,
     command: String,
 }
@@ -42,7 +42,7 @@ fn new_hotkey(phk: &ProfileHotKey) -> Result<Hotkey> {
         }
     }
     
-    let key = format!("Key{}", phk.keys[0].to_uppercase());        
+    let key = format!("Key{}", phk.key.to_uppercase());        
     let mut vals: Vec<String> = phk.modifiers.iter().map(|m| capitalize(m)).collect();
     vals.push(key);
 
@@ -106,7 +106,8 @@ fn auto_launch() -> Result<()> {
         auto.enable().context("Failed to register hotkeyd as launch item.")
     }
     else {
-        Err(anyhow::Error::new(Error::new(ErrorKind::NotFound, "Did not find the current binary.")))
+        Err(Error::new(ErrorKind::NotFound, "Did not find the current binary."))
+            .context("Could not convert the binary path to a string.")
     }
 }
 
